@@ -63,6 +63,29 @@
   .big { font-family:inherit; font-size:26px; padding:12px; border-radius:10px; border:2px solid var(--yel); background:var(--yel); color:#111; }
   .big.ghost { background:transparent; color:var(--yel); }
   #msg { font-size:19px; text-align:center; min-height:1.2em; opacity:.85; max-width:360px; }
+  #zooms { position:fixed; left:50%; transform:translateX(-50%); bottom:calc(128px + env(safe-area-inset-bottom)); z-index:5;
+    display:flex; gap:8px; padding:5px; border-radius:30px; background:rgba(0,0,0,.4); }
+  #zooms button { min-width:42px; height:42px; border-radius:21px; border:none; background:rgba(0,0,0,.35); color:var(--yel);
+    font-family:inherit; font-size:20px; padding:0 8px; }
+  #zooms button.sel { background:var(--yel); color:#111; font-size:22px; }
+  #zooms button.na { opacity:.3; }
+  #top { position:fixed; top:calc(10px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%); z-index:5; display:flex; gap:10px; align-items:center; }
+  #meter { width:90px; height:8px; border:1px solid rgba(233,220,138,.6); border-radius:4px; overflow:hidden; background:rgba(0,0,0,.4); }
+  #meter i { display:block; height:100%; width:0; background:linear-gradient(90deg,#9c3 0%,#ec3 70%,#f43 100%); }
+  .mini { width:40px; height:40px; border-radius:50%; border:1px solid rgba(233,220,138,.6); background:rgba(0,0,0,.4); color:var(--yel); font-size:18px; font-family:inherit; }
+  .mini.on { background:var(--yel); color:#111; }
+  #tape { position:fixed; left:50%; transform:translateX(-50%); top:calc(150px + env(safe-area-inset-top)); z-index:6;
+    display:none; align-items:center; gap:10px; padding:6px 8px 6px 14px; border-radius:26px; background:rgba(0,0,0,.6); border:1px solid #6b6436; font-size:19px; white-space:nowrap; }
+  #tape.show { display:flex; }
+  #tape button { font-family:inherit; font-size:19px; border-radius:16px; height:32px; padding:0 12px; border:2px solid var(--yel); }
+  #done { background:var(--yel); color:#111; }
+  #trash { background:transparent; color:var(--yel); padding:0 10px !important; }
+  #rec.paused::after { inset:6px; border-radius:50%; background:var(--red); box-shadow:0 0 0 4px rgba(0,0,0,.4) inset; }
+  #confirm { position:fixed; inset:0; z-index:25; background:rgba(0,0,0,.75); display:none; align-items:center; justify-content:center; padding:24px; }
+  #confirm.show { display:flex; }
+  #confirm > div { background:#0e0d06; border:2px solid #6b6436; border-radius:12px; padding:20px; max-width:320px; text-align:center; font-size:24px; }
+  #confirm .btns { display:flex; gap:10px; margin-top:16px; }
+  #confirm .btns button { flex:1; }
   #toast { position:fixed; top:calc(20px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%); z-index:30; background:rgba(0,0,0,.8);
     border:1px solid #6b6436; padding:6px 14px; font-size:20px; border-radius:6px; display:none; }
 </style>
@@ -80,6 +103,14 @@
   <div class="err" id="err"></div>
 </div>
 
+<div id="top">
+  <span style="font-size:18px">MIC</span><div id="meter"><i></i></div>
+  <button class="mini" id="torch" style="display:none" aria-label="Flashlight">ϟ</button>
+</div>
+<div id="zooms"></div>
+<div id="tape"><span id="tapeinfo">CLIPS 0 · 0:00:00</span><button id="done">✓ DONE</button><button id="trash" aria-label="Throw out tape">🗑</button></div>
+<div id="confirm"><div>THROW OUT THIS TAPE?<br><span style="font-size:18px;opacity:.7">All clips will be deleted.</span>
+  <div class="btns"><button class="big ghost" id="cNo">KEEP</button><button class="big" id="cYes">TRASH</button></div></div></div>
 <div id="bar">
   <button class="icon" id="gear" aria-label="Settings">⚙</button>
   <button id="rec" aria-label="Record"></button>
@@ -95,6 +126,8 @@
     </div>
   </div>
   <div class="row"><span>DAMAGE</span><input type="range" id="amt" min="0" max="1" step="0.01" value="0.55"></div>
+  <div class="row"><span>MIC BOOST</span><input type="range" id="boost" min="1" max="12" step="0.5" value="5"><span id="boostv" style="width:44px;text-align:right">5×</span></div>
+  <div class="row"><span>CAMCORDER LENS</span><input type="checkbox" id="lens" checked></div>
   <div class="row"><span>DATE STAMP</span><input type="text" id="date" maxlength="14"></div>
   <div class="row"><span>CAMCORDER TEXT</span><input type="checkbox" id="osd" checked></div>
   <div class="row"><span>TAPE AUDIO</span><input type="checkbox" id="afx" checked></div>
@@ -125,8 +158,10 @@
   const now0 = new Date();
   $('date').value = `${MONTHS[now0.getMonth()]}. ${String(now0.getDate()).padStart(2,'0')} 1996`;
 
-  const S = { mode:'backrooms', amt:0.55, osd:true, afx:true, hum:true, facing:'environment' };
-  let W = 540, H = 960, recording = false, recStart = 0;
+  const S = { mode:'backrooms', amt:0.55, osd:true, afx:true, hum:true, facing:'environment', boost:5, lens:true };
+  let W = 540, H = 960, recording = false, recStart = 0, tapeMs = 0, clips = 0, cut = 0, discarding = false;
+  const tapeActive = () => !!(recorder && recorder.state !== 'inactive');
+  const tapeTime = () => tapeMs + (recording ? performance.now()-recStart : 0);
   let videoStream = null, audioStream = null, audio = null;
   let recorder = null, chunks = [], lastBlob = null, lastUrl = null;
   let glitch = 0, glitchY = 0.5, flick = 0, brMix = 1;
@@ -135,7 +170,7 @@
 
   // ---------- sizing ----------
   function sizeCanvas(){
-    if (recording) return;
+    if (tapeActive()) return;
     const portrait = innerHeight >= innerWidth;
     const ar = portrait ? innerHeight/innerWidth : innerWidth/innerHeight;
     const shortSide = 540;
@@ -154,12 +189,13 @@
   precision mediump float;
   varying vec2 v;
   uniform sampler2D tex;
-  uniform float t, amt, br, glitch, gy, flick, mirror, ready;
+  uniform float t, amt, br, glitch, gy, flick, mirror, ready, dz, lens;
   uniform vec2 res, sc, of;
   float h(vec2 p){ return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453); }
   float n1(float x){ float i=floor(x), f=fract(x); return mix(h(vec2(i,0.)),h(vec2(i+1.,0.)),f*f*(3.-2.*f)); }
   vec3 samp(vec2 uv){
     if(mirror>.5) uv.x = 1.-uv.x;
+    uv = (uv-.5)/dz+.5;
     uv = uv*sc+of;
     return texture2D(tex, clamp(uv,0.001,.999)).rgb;
   }
@@ -169,6 +205,8 @@
   }
   void main(){
     vec2 uv = v;
+    vec2 cc = v-.5;
+    uv = .5 + cc*(1. - lens*.07 + lens*.18*dot(cc,cc));
     float y = 1.-uv.y;
     float ln = floor(y*240.);
     float tf = floor(t*30.);
@@ -222,7 +260,7 @@
     const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]), gl.STATIC_DRAW);
     const loc = gl.getAttribLocation(prog,'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
-    ['tex','t','amt','br','glitch','gy','flick','mirror','ready','res','sc','of'].forEach(n => U[n]=gl.getUniformLocation(prog,n));
+    ['tex','t','amt','br','glitch','gy','flick','mirror','ready','dz','lens','res','sc','of'].forEach(n => U[n]=gl.getUniformLocation(prog,n));
     texture = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -247,11 +285,14 @@
     const fs = Math.round(Math.min(W,H)*0.085);
     octx.font = `${fs}px VT323, ui-monospace, monospace`;
     octx.textBaseline = 'top';
-    const m = Math.round(fs*0.7), topM = m + (H>W ? fs*0.6 : 0), botM = H>W ? fs*3.6 : fs*1.4;
+    const m = Math.round(fs*0.7), topM = m + (H>W ? fs*0.6 : 0), botM = H>W ? fs*7 : fs*2.6;
     const jitter = (Math.random()<0.08*S.amt) ? (Math.random()-.5)*6 : 0;
     if (recording) {
       if (Math.floor(t*1.6)%2===0) vText('● REC', m+jitter, topM, 'left', '#ff3030');
-      vText(fmtCounter(performance.now()-recStart), W-m+jitter, topM, 'right');
+      vText(fmtCounter(tapeTime()), W-m+jitter, topM, 'right');
+    } else if (tapeActive()) {
+      vText('PAUSE ❚❚', m+jitter, topM, 'left');
+      vText(fmtCounter(tapeTime()), W-m+jitter, topM, 'right');
     } else {
       vText('PLAY ▶', m+jitter, topM, 'left');
       vText('SP', W-m+jitter, topM, 'right');
@@ -260,6 +301,33 @@
     vText(fmtClock(d), m+jitter, H-botM-fs*1.05, 'left');
     vText(($('date').value||'').toUpperCase(), m+jitter, H-botM, 'left');
   }
+
+  function drawZoomBar(){
+    const fs = Math.round(Math.min(W,H)*0.07);
+    octx.font = `${fs}px VT323, ui-monospace, monospace`; octx.textBaseline='middle';
+    const y = H*0.2, x0 = W*0.18, x1 = W*0.82, n = 16;
+    vText('W', x0-fs*0.9, y, 'left'); vText('T', x1+fs*0.3, y, 'left');
+    const frac = Math.log(Z.target/0.5)/Math.log(10/0.5);
+    const segW = (x1-x0)/n;
+    for (let i=0;i<n;i++){
+      const on = (i+0.5)/n <= frac;
+      octx.fillStyle = on ? '#fff' : 'rgba(255,255,255,.25)';
+      octx.fillRect(x0+i*segW+2, y-fs*0.22, segW-4, fs*0.44);
+    }
+    vText(Z.target.toFixed(1)+'×', W/2, y+fs*0.9, 'center');
+    octx.textBaseline='top';
+  }
+  let meterLvl = 0;
+  function updateMeter(){
+    if (!audio || !audio.an) return;
+    const buf = audio.buf; audio.an.getFloatTimeDomainData(buf);
+    let sum=0; for (let i=0;i<buf.length;i++) sum+=buf[i]*buf[i];
+    const db = 20*Math.log10(Math.sqrt(sum/buf.length)+1e-6);
+    const lvl = Math.max(0, Math.min(1, (db+50)/50));
+    meterLvl = Math.max(lvl, meterLvl*0.9);
+    meterEl.style.width = (meterLvl*100).toFixed(0)+'%';
+  }
+  const meterEl = document.querySelector('#meter i');
 
   // ---------- render loop ----------
   const t0 = performance.now();
@@ -281,7 +349,7 @@
       if (va > caR) { sc=[caR/va,1]; of=[(1-sc[0])/2,0]; } else { sc=[1,va/caR]; of=[0,(1-sc[1])/2]; }
       gl.uniform1i(U.tex,0); gl.uniform1f(U.t,t); gl.uniform1f(U.amt,S.amt); gl.uniform1f(U.br,brMix);
       gl.uniform1f(U.glitch,glitch); gl.uniform1f(U.gy,glitchY); gl.uniform1f(U.flick,fl);
-      gl.uniform1f(U.mirror, S.facing==='user'?1:0); gl.uniform1f(U.ready, live?1:0);
+      gl.uniform1f(U.mirror, S.facing==='user'?1:0); Z.dzCur += (Z.dz-Z.dzCur)*0.25; gl.uniform1f(U.dz, Z.dzCur); gl.uniform1f(U.lens, S.lens?1:0); cut *= 0.84; gl.uniform1f(U.ready, live ? 1-Math.min(cut,1)*0.9 : 0);
       gl.uniform2f(U.res,glc.width,glc.height); gl.uniform2f(U.sc,sc[0],sc[1]); gl.uniform2f(U.of,of[0],of[1]);
       gl.drawArrays(gl.TRIANGLES,0,6);
       octx.imageSmoothingEnabled = true;
@@ -291,17 +359,99 @@
       octx.drawImage(cam,0,0,W,H); octx.filter='none';
     }
     if (S.osd) drawOSD(t);
+    if (S.osd && performance.now()-Z.shownAt < 1800) drawZoomBar();
+    updateMeter();
     requestAnimationFrame(frame);
   }
 
   // ---------- camera ----------
-  async function startCamera(){
+  // Zoom: hardware zoom when the browser exposes it, the ultra-wide lens for 0.5x, digital crop for the rest.
+  const Z = { levels:[0.5,1,2,3,5], target:1, dz:1, dzCur:1, hw:null, uwId:null, backIds:[], curId:null, onUW:false, lensIdx:0, shownAt:-1e9, busy:false };
+  async function startCamera(deviceId){
     if (videoStream) videoStream.getTracks().forEach(tr=>tr.stop());
-    videoStream = await navigator.mediaDevices.getUserMedia({
-      video:{ facingMode:{ ideal:S.facing }, width:{ ideal:1280 }, height:{ ideal:720 }, frameRate:{ ideal:30 } }, audio:false });
+    const v = { width:{ ideal:1920 }, height:{ ideal:1080 }, frameRate:{ ideal:30 } };
+    if (deviceId) v.deviceId = { exact:deviceId }; else v.facingMode = { ideal:S.facing };
+    videoStream = await navigator.mediaDevices.getUserMedia({ video:v, audio:false });
     cam.srcObject = videoStream;
     await cam.play().catch(()=>{});
+    const tr = videoStream.getVideoTracks()[0];
+    Z.curId = tr.getSettings ? tr.getSettings().deviceId : null;
+    const caps = tr.getCapabilities ? tr.getCapabilities() : {};
+    Z.hw = caps.zoom ? { min:caps.zoom.min, max:caps.zoom.max } : null;
+    $('torch').style.display = caps.torch ? '' : 'none'; $('torch').classList.remove('on');
+    glitch = 1;
   }
+  async function scanLenses(){
+    try {
+      const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');
+      const back = devs.filter(d => !/front|user|facetime/i.test(d.label));
+      const uw = back.find(d => /ultra ?wide|ultrawide|0\.5|wide angle/i.test(d.label));
+      Z.uwId = uw ? uw.deviceId : null;
+      // physical back lenses only (skip iOS "Dual/Triple" virtual cameras)
+      Z.backIds = back.filter(d => !/dual|triple|telephoto/i.test(d.label)).map(d=>d.deviceId);
+    } catch(e){}
+  }
+  function canHalf(){
+    if (S.facing==='user') return false;
+    return !!(Z.uwId || (Z.hw && Z.hw.min <= 0.55) || Z.backIds.length > 1);
+  }
+  async function setHW(v){
+    const tr = videoStream && videoStream.getVideoTracks()[0];
+    if (!tr || !Z.hw) return 1;
+    v = Math.max(Z.hw.min, Math.min(Z.hw.max, v));
+    try { await tr.applyConstraints({ advanced:[{ zoom:v }] }); return v; } catch(e){ return 1; }
+  }
+  // live = during a pinch: never swap lenses, just clamp
+  async function setZoom(z, live=false){
+    if (Z.busy) return;
+    z = Math.max(S.facing==='user' ? 1 : 0.5, Math.min(10, z));
+    Z.shownAt = performance.now();
+    if (z < 1) {
+      if (Z.hw && Z.hw.min <= z) { const h = await setHW(z); Z.dz = z/h; Z.target = z; }
+      else if (Z.uwId) {
+        if (!Z.onUW) { if (live) { z = 1; } else { Z.busy=true; try { await startCamera(Z.uwId); Z.onUW = true; } catch(e){ toast('Ultra-wide not available'); z=1; } Z.busy=false; } }
+        if (Z.onUW) { Z.dz = z/0.5; Z.target = z; }
+        else { Z.dz = 1; Z.target = 1; }
+      }
+      else if (!live && Z.backIds.length > 1) {
+        // Browser doesn't say which lens is which: cycle through the back lenses
+        Z.lensIdx = (Z.lensIdx+1) % Z.backIds.length;
+        Z.busy=true; try { await startCamera(Z.backIds[Z.lensIdx]); } catch(e){} Z.busy=false;
+        toast(`LENS ${Z.lensIdx+1} OF ${Z.backIds.length} — tap 0.5 again for next`, 2200);
+        Z.dz = 1; Z.target = 0.5; Z.onUW = Z.lensIdx !== 0; renderZooms(); return;
+      }
+      else { if (!live) toast('This phone/browser doesn\'t expose the 0.5 lens', 2400); Z.dz = 1; Z.target = 1; }
+    } else {
+      if (Z.onUW && !live) { Z.busy=true; try { await startCamera(Z.lensIdx && Z.backIds[0] ? Z.backIds[0] : undefined); } catch(e){} Z.busy=false; Z.onUW=false; Z.lensIdx=0; }
+      if (Z.onUW) { Z.dz = Math.min(z,1)/0.5; Z.target = Math.min(z,1); }
+      else { const h = Z.hw ? await setHW(z) : 1; Z.dz = z/h; Z.target = z; }
+    }
+    renderZooms();
+  }
+  function renderZooms(){
+    const box = $('zooms'); box.innerHTML = '';
+    const half = canHalf();
+    Z.levels.forEach(l => {
+      if (l < 1 && S.facing==='user') return;
+      const b = document.createElement('button');
+      const near = Z.levels.reduce((a,c)=>Math.abs(c-Z.target)<Math.abs(a-Z.target)?c:a);
+      const sel = near === l;
+      b.textContent = sel ? (Z.target<1 ? Z.target.toFixed(1).replace(/^0/,'') : (Math.round(Z.target*10)/10))+'×' : (l<1 ? '.5' : l);
+      if (sel) b.className='sel';
+      if (l<1 && !half) b.classList.add('na');
+      b.onclick = e => { e.stopPropagation(); if (navigator.vibrate) navigator.vibrate(8); setZoom(l); };
+      box.appendChild(b);
+    });
+  }
+  // pinch to zoom
+  let pinch = null;
+  const dist = t => Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY);
+  out.addEventListener('touchstart', e => { if (e.touches.length===2) pinch = { d:dist(e.touches), z:Z.target }; }, { passive:true });
+  out.addEventListener('touchmove', e => { if (pinch && e.touches.length===2) { setZoom(pinch.z * dist(e.touches)/pinch.d, true); } }, { passive:true });
+  out.addEventListener('touchend', e => { if (pinch && e.touches.length<2) { const z = Z.target; const startZ = pinch.z; pinch=null;
+      if (z<=1 && startZ>=1 && pinchWantsUW) setZoom(0.5); } }, { passive:true });
+  let pinchWantsUW = false;
+  out.addEventListener('touchmove', e => { if (pinch && e.touches.length===2) pinchWantsUW = pinch.z*dist(e.touches)/pinch.d < 0.8; }, { passive:true });
 
   // ---------- tape audio ----------
   function makeAudio(){
@@ -309,34 +459,46 @@
     const ctx = new AC();
     const src = ctx.createMediaStreamSource(audioStream);
     const dest = ctx.createMediaStreamDestination();
-    // processed path
-    const hp = ctx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=140;
-    const lp = ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=3800;
-    const shaper = ctx.createWaveShaper(); const curve=new Float32Array(1024);
-    for(let i=0;i<1024;i++){ const x=i/512-1; curve[i]=Math.tanh(x*2.2)/Math.tanh(2.2); } shaper.curve=curve;
+    // loudness: big pre-gain -> compressor -> (tape fx | clean) -> brickwall limiter
+    const pre = ctx.createGain();
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value=-30; comp.knee.value=12; comp.ratio.value=5; comp.attack.value=0.004; comp.release.value=0.18;
+    src.connect(pre).connect(comp);
+    const hp = ctx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=110;
+    const lp = ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=5200;
+    const mid = ctx.createBiquadFilter(); mid.type='peaking'; mid.frequency.value=1600; mid.Q.value=0.8; mid.gain.value=4; // voice presence
+    const shaper = ctx.createWaveShaper(); const curve=new Float32Array(2048);
+    for(let i=0;i<2048;i++){ const x=i/1024-1; curve[i]=Math.tanh(x*1.6)/Math.tanh(1.6); } shaper.curve=curve; shaper.oversample='2x';
     const wow = ctx.createDelay(0.05); wow.delayTime.value=0.012;
-    const lfo = ctx.createOscillator(); lfo.frequency.value=0.55; const lfoG=ctx.createGain(); lfoG.gain.value=0.0018;
+    const lfo = ctx.createOscillator(); lfo.frequency.value=0.55; const lfoG=ctx.createGain(); lfoG.gain.value=0.0015;
     lfo.connect(lfoG).connect(wow.delayTime); lfo.start();
-    const fx = ctx.createGain(); fx.gain.value = 1.1;
-    src.connect(hp).connect(lp).connect(shaper).connect(wow).connect(fx);
-    const dry = ctx.createGain(); src.connect(dry);
+    const fx = ctx.createGain();
+    comp.connect(hp).connect(lp).connect(mid).connect(shaper).connect(wow).connect(fx);
+    const dry = ctx.createGain(); comp.connect(dry);
+    const makeup = ctx.createGain();
+    const lim = ctx.createDynamicsCompressor();
+    lim.threshold.value=-2; lim.knee.value=0; lim.ratio.value=20; lim.attack.value=0.001; lim.release.value=0.08;
+    fx.connect(makeup); dry.connect(makeup); makeup.connect(lim);
     // hiss
     const nb = ctx.createBuffer(1, ctx.sampleRate*2, ctx.sampleRate); const d=nb.getChannelData(0);
     for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
     const noise = ctx.createBufferSource(); noise.buffer=nb; noise.loop=true;
     const nhp = ctx.createBiquadFilter(); nhp.type='highpass'; nhp.frequency.value=1800;
-    const hiss = ctx.createGain(); noise.connect(nhp).connect(hiss); noise.start();
+    const hiss = ctx.createGain(); noise.connect(nhp).connect(hiss).connect(lim); noise.start();
     // fluorescent buzz
     const osc = ctx.createOscillator(); osc.type='sawtooth'; osc.frequency.value=120;
     const osc2 = ctx.createOscillator(); osc2.type='square'; osc2.frequency.value=240;
     const blp = ctx.createBiquadFilter(); blp.type='lowpass'; blp.frequency.value=900;
-    const buzz = ctx.createGain(); osc.connect(blp); osc2.connect(blp); blp.connect(buzz); osc.start(); osc2.start();
-    [fx,dry,hiss,buzz].forEach(n=>n.connect(dest));
-    const a = { ctx, dest, fx, dry, hiss, buzz };
+    const buzz = ctx.createGain(); osc.connect(blp); osc2.connect(blp); blp.connect(buzz).connect(lim); osc.start(); osc2.start();
+    const an = ctx.createAnalyser(); an.fftSize = 1024;
+    lim.connect(an); lim.connect(dest);
+    const a = { ctx, dest, an, buf:new Float32Array(1024) };
     a.update = () => {
-      fx.gain.value = S.afx ? 1.1 : 0; dry.gain.value = S.afx ? 0 : 1;
-      hiss.gain.value = S.afx ? 0.012 + 0.03*S.amt : 0;
-      buzz.gain.value = (S.hum && S.mode==='backrooms') ? 0.018 : 0;
+      pre.gain.value = S.boost;
+      fx.gain.value = S.afx ? 1 : 0; dry.gain.value = S.afx ? 0 : 1;
+      makeup.gain.value = 2.2;
+      hiss.gain.value = S.afx ? 0.01 + 0.025*S.amt : 0;
+      buzz.gain.value = (S.hum && S.mode==='backrooms') ? 0.02 : 0;
     };
     a.update();
     return a;
@@ -348,30 +510,67 @@
     const c = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
     return c.find(m => { try { return MediaRecorder.isTypeSupported(m); } catch(e){ return false; } }) || '';
   }
-  function startRec(){
+  function newTape(){
     const mime = pickMime();
-    if (mime === null || !out.captureStream) { toast('Recording not supported in this browser', 3000); return; }
+    if (mime === null || !out.captureStream) { toast('Recording not supported in this browser', 3000); return false; }
     const vs = out.captureStream(30);
     const tracks = [...vs.getVideoTracks()];
     if (audio) { if (audio.ctx.state==='suspended') audio.ctx.resume(); tracks.push(...audio.dest.stream.getAudioTracks()); }
     const ms = new MediaStream(tracks);
-    chunks = [];
+    chunks = []; tapeMs = 0; clips = 0; discarding = false;
     try { recorder = new MediaRecorder(ms, mime ? { mimeType:mime, videoBitsPerSecond:4_000_000 } : undefined); }
     catch(e){ recorder = new MediaRecorder(ms); }
     recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
-    recorder.onstop = () => {
+    const rec = recorder;
+    rec.onstop = () => {
       vs.getTracks().forEach(tr=>tr.stop());
-      const type = (recorder.mimeType || mime || 'video/webm');
+      if (discarding) { chunks = []; discarding = false; updateTapeUI(); return; }
+      const type = (rec.mimeType || mime || 'video/webm');
       lastBlob = new Blob(chunks, { type });
+      updateTapeUI();
       showReview();
     };
-    recorder.start(1000);
-    recording = true; recStart = performance.now();
-    $('rec').classList.add('on');
+    rec.start(1000);
+    return true;
   }
-  function stopRec(){
+  // tap record: start a new clip (on the same tape if one is loaded)
+  function startClip(){
+    if (!tapeActive()) { if (!newTape()) return; }
+    else if (recorder.state === 'paused') {
+      if (typeof recorder.resume !== 'function') return;
+      recorder.resume();
+    }
+    cut = 1; glitch = 1; if (navigator.vibrate) navigator.vibrate(30);
+    clips++; recording = true; recStart = performance.now();
+    updateTapeUI();
+  }
+  // tap again: end the clip, keep the tape loaded
+  function endClip(){
+    if (!recording) return;
+    if (typeof recorder.pause !== 'function') { finishTape(); return; } // very old browsers: no clips
+    tapeMs += performance.now()-recStart; recording = false;
+    recorder.pause();
+    if (navigator.vibrate) navigator.vibrate([15,30,15]);
+    updateTapeUI();
+  }
+  function finishTape(){
+    if (recording) { tapeMs += performance.now()-recStart; recording = false; }
+    if (recorder && recorder.state !== 'inactive') { if (recorder.state==='paused') recorder.resume(); recorder.stop(); }
+    if (navigator.vibrate) navigator.vibrate([20,40,20]);
+    updateTapeUI();
+  }
+  function trashTape(){
+    discarding = true; recording = false;
     if (recorder && recorder.state !== 'inactive') recorder.stop();
-    recording = false; $('rec').classList.remove('on');
+    updateTapeUI(); toast('TAPE EJECTED');
+  }
+  function updateTapeUI(){
+    const active = tapeActive() && !discarding;
+    $('rec').classList.toggle('on', recording);
+    $('rec').classList.toggle('paused', active && !recording);
+    $('tape').classList.toggle('show', active && !recording);
+    $('tapeinfo').textContent = `${clips} CLIP${clips===1?'':'S'} · ${fmtCounter(tapeTime())}`;
+    $('gear').style.visibility = recording ? 'hidden' : '';
   }
 
   function fileForBlob(){
@@ -400,10 +599,16 @@
   }
 
   // ---------- UI wiring ----------
-  $('rec').onclick = () => { recording ? stopRec() : startRec(); };
+  $('rec').onclick = () => { recording ? endClip() : startClip(); };
+  $('done').onclick = e => { e.stopPropagation(); finishTape(); };
+  $('trash').onclick = e => { e.stopPropagation(); $('confirm').classList.add('show'); };
+  $('cNo').onclick = () => $('confirm').classList.remove('show');
+  $('cYes').onclick = () => { $('confirm').classList.remove('show'); trashTape(); };
   $('flip').onclick = async () => {
     S.facing = S.facing==='environment' ? 'user' : 'environment';
+    Z.onUW = false; Z.lensIdx = 0; Z.dz = 1; Z.target = 1;
     try { await startCamera(); } catch(e){ toast('Could not switch camera'); }
+    renderZooms();
   };
   $('gear').onclick = () => $('sheet').classList.add('open');
   $('closeSheet').onclick = () => $('sheet').classList.remove('open');
@@ -413,6 +618,16 @@
     S.mode = b.dataset.v; audio && audio.update();
   });
   $('amt').oninput = e => { S.amt = +e.target.value; audio && audio.update(); };
+  $('boost').oninput = e => { S.boost = +e.target.value; $('boostv').textContent = S.boost+'×'; audio && audio.update(); };
+  $('lens').onchange = e => S.lens = e.target.checked;
+  $('torch').onclick = async e => {
+    e.stopPropagation(); const b = $('torch'); const on = !b.classList.contains('on');
+    try { await videoStream.getVideoTracks()[0].applyConstraints({ advanced:[{ torch:on }] }); b.classList.toggle('on', on); } catch(err){ toast('Flashlight not available'); }
+  };
+  // keep the screen awake while filming
+  let wake = null;
+  async function keepAwake(){ try { if ('wakeLock' in navigator) wake = await navigator.wakeLock.request('screen'); } catch(e){} }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState==='visible' && booted) keepAwake(); });
   $('osd').onchange = e => S.osd = e.target.checked;
   $('afx').onchange = e => { S.afx = e.target.checked; audio && audio.update(); };
   $('hum').onchange = e => { S.hum = e.target.checked; audio && audio.update(); };
@@ -436,9 +651,10 @@
     booted = true;
     try { await startCamera(); }
     catch(e){ booted=false; err.style.display='block'; err.textContent='Camera blocked: '+(e.message||e.name)+'. Allow camera access and tap again.'; return; }
-    try { audioStream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:true }, video:false }); }
+    try { audioStream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:true, channelCount:1 }, video:false }); }
     catch(e){ toast('No mic — recording silent', 2500); }
     audio = makeAudio();
+    await scanLenses(); renderZooms(); keepAwake();
     if (audio && audio.ctx.state==='suspended') audio.ctx.resume();
     $('start').style.display='none';
   };
