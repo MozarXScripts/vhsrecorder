@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="LEVEL 0 CAM">
+<meta name="theme-color" content="#000000">
+<title>LEVEL 0 CAM</title>
+<link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+<style>
+  :root { --yel:#e9dc8a; --red:#ff2b2b; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; height:100%; background:#000; overflow:hidden; color:var(--yel);
+    font-family:'VT323',ui-monospace,monospace; touch-action:manipulation; user-select:none; -webkit-user-select:none; }
+  #out { position:fixed; inset:0; width:100vw; height:100vh; height:100dvh; object-fit:cover; display:block; background:#000; }
+  #cam { position:fixed; width:2px; height:2px; opacity:0.01; pointer-events:none; left:0; top:0; }
+
+  /* start screen */
+  #start { position:fixed; inset:0; z-index:20; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:radial-gradient(ellipse at center,#2a2610 0%,#0d0c05 60%,#000 100%); text-align:center; padding:24px; }
+  #start h1 { font-size:64px; margin:0; letter-spacing:4px; color:var(--yel); text-shadow:2px 0 #f33,-2px 0 #3af; font-weight:normal; }
+  #start p { font-size:22px; margin:8px 0; opacity:.8; }
+  #start .tap { margin-top:40px; font-size:30px; animation:blink 1.1s steps(1) infinite; }
+  #start .err { color:#ff6b6b; font-size:20px; max-width:420px; margin-top:24px; display:none; }
+  @keyframes blink { 50% { opacity:0; } }
+  #start .scan { position:absolute; inset:0; pointer-events:none;
+    background:repeating-linear-gradient(0deg,rgba(0,0,0,.25) 0 2px,transparent 2px 4px); }
+
+  /* controls */
+  #bar { position:fixed; left:0; right:0; bottom:0; z-index:5; display:flex; align-items:center; justify-content:space-around;
+    padding:16px 24px calc(22px + env(safe-area-inset-bottom)); background:linear-gradient(transparent,rgba(0,0,0,.55)); }
+  .icon { width:56px; height:56px; border-radius:50%; border:2px solid rgba(233,220,138,.6); background:rgba(0,0,0,.35);
+    color:var(--yel); font-size:26px; display:flex; align-items:center; justify-content:center; font-family:inherit; }
+  .icon:active { transform:scale(.92); }
+  #rec { width:84px; height:84px; border-radius:50%; border:5px solid #fff; background:transparent; padding:0; position:relative; }
+  #rec::after { content:''; position:absolute; inset:6px; border-radius:50%; background:var(--red); transition:all .2s; }
+  #rec.on::after { inset:22px; border-radius:6px; }
+  #rec:active { transform:scale(.94); }
+
+  /* settings sheet */
+  #sheet { position:fixed; left:0; right:0; bottom:0; z-index:10; background:rgba(14,13,6,.96); border-top:2px solid #6b6436;
+    padding:18px 20px calc(24px + env(safe-area-inset-bottom)); transform:translateY(105%); transition:transform .25s; font-size:22px; }
+  #sheet.open { transform:none; }
+  #sheet h2 { margin:0 0 10px; font-weight:normal; font-size:28px; display:flex; justify-content:space-between; }
+  #sheet h2 button { background:none; border:none; color:var(--yel); font-size:30px; font-family:inherit; }
+  .row { display:flex; align-items:center; justify-content:space-between; margin:12px 0; gap:12px; }
+  .seg { display:flex; border:2px solid #6b6436; border-radius:8px; overflow:hidden; }
+  .seg button { background:none; border:none; color:var(--yel); font-family:inherit; font-size:20px; padding:8px 12px; }
+  .seg button.sel { background:var(--yel); color:#111; }
+  input[type=range] { flex:1; accent-color:var(--yel); }
+  input[type=text] { background:#000; color:var(--yel); border:2px solid #6b6436; border-radius:6px; font-family:inherit; font-size:20px; padding:4px 8px; width:150px; text-transform:uppercase; }
+  input[type=checkbox] { width:26px; height:26px; accent-color:var(--yel); }
+
+  /* review modal */
+  #review { position:fixed; inset:0; z-index:15; background:rgba(0,0,0,.92); display:none; flex-direction:column; align-items:center; justify-content:center;
+    padding:calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); gap:14px; }
+  #review.show { display:flex; }
+  #review video { max-width:100%; max-height:62vh; border:2px solid #6b6436; background:#000; }
+  #review .btns { display:flex; flex-direction:column; gap:10px; width:100%; max-width:360px; }
+  .big { font-family:inherit; font-size:26px; padding:12px; border-radius:10px; border:2px solid var(--yel); background:var(--yel); color:#111; }
+  .big.ghost { background:transparent; color:var(--yel); }
+  #msg { font-size:19px; text-align:center; min-height:1.2em; opacity:.85; max-width:360px; }
+  #toast { position:fixed; top:calc(20px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%); z-index:30; background:rgba(0,0,0,.8);
+    border:1px solid #6b6436; padding:6px 14px; font-size:20px; border-radius:6px; display:none; }
+</style>
+</head>
+<body>
+<video id="cam" playsinline muted autoplay></video>
+<canvas id="out"></canvas>
+
+<div id="start">
+  <div class="scan"></div>
+  <h1>LEVEL 0 CAM</h1>
+  <p>VHS CAMCORDER · EST. 1996</p>
+  <p style="font-size:18px;opacity:.55">you are not supposed to be here</p>
+  <div class="tap">▶ TAP TO INSERT TAPE</div>
+  <div class="err" id="err"></div>
+</div>
+
+<div id="bar">
+  <button class="icon" id="gear" aria-label="Settings">⚙</button>
+  <button id="rec" aria-label="Record"></button>
+  <button class="icon" id="flip" aria-label="Flip camera">⟲</button>
+</div>
+
+<div id="sheet">
+  <h2>TRACKING MENU <button id="closeSheet">✕</button></h2>
+  <div class="row"><span>MODE</span>
+    <div class="seg" id="mode">
+      <button data-v="vhs">VHS</button>
+      <button data-v="backrooms" class="sel">BACKROOMS</button>
+    </div>
+  </div>
+  <div class="row"><span>DAMAGE</span><input type="range" id="amt" min="0" max="1" step="0.01" value="0.55"></div>
+  <div class="row"><span>DATE STAMP</span><input type="text" id="date" maxlength="14"></div>
+  <div class="row"><span>CAMCORDER TEXT</span><input type="checkbox" id="osd" checked></div>
+  <div class="row"><span>TAPE AUDIO</span><input type="checkbox" id="afx" checked></div>
+  <div class="row"><span>FLUORESCENT HUM</span><input type="checkbox" id="hum" checked></div>
+</div>
+
+<div id="review">
+  <video id="playback" playsinline controls loop></video>
+  <div id="msg"></div>
+  <div class="btns">
+    <button class="big" id="save">SAVE TO CAMERA ROLL</button>
+    <button class="big ghost" id="dl">DOWNLOAD FILE</button>
+    <button class="big ghost" id="discard">DISCARD / NEW TAPE</button>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const out = $('out'), octx = out.getContext('2d');
+  const cam = $('cam');
+  const glc = document.createElement('canvas');
+  const gl = glc.getContext('webgl', { preserveDrawingBuffer:true, antialias:false }) ||
+             glc.getContext('experimental-webgl', { preserveDrawingBuffer:true });
+
+  const MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  const now0 = new Date();
+  $('date').value = `${MONTHS[now0.getMonth()]}. ${String(now0.getDate()).padStart(2,'0')} 1996`;
+
+  const S = { mode:'backrooms', amt:0.55, osd:true, afx:true, hum:true, facing:'environment' };
+  let W = 540, H = 960, recording = false, recStart = 0;
+  let videoStream = null, audioStream = null, audio = null;
+  let recorder = null, chunks = [], lastBlob = null, lastUrl = null;
+  let glitch = 0, glitchY = 0.5, flick = 0, brMix = 1;
+
+  function toast(t, ms=1600){ const el=$('toast'); el.textContent=t; el.style.display='block'; clearTimeout(toast._t); toast._t=setTimeout(()=>el.style.display='none',ms); }
+
+  // ---------- sizing ----------
+  function sizeCanvas(){
+    if (recording) return;
+    const portrait = innerHeight >= innerWidth;
+    const ar = portrait ? innerHeight/innerWidth : innerWidth/innerHeight;
+    const shortSide = 540;
+    const longSide = Math.round(shortSide*Math.min(Math.max(ar,1.33),2.2)/2)*2;
+    W = portrait ? shortSide : longSide; H = portrait ? longSide : shortSide;
+    out.width = W; out.height = H;
+    // low-res "tape" buffer — VHS has ~half the horizontal resolution
+    glc.width = Math.round(W*0.55); glc.height = Math.round(H*0.6);
+    if (gl) gl.viewport(0,0,glc.width,glc.height);
+  }
+  addEventListener('resize', sizeCanvas);
+
+  // ---------- WebGL ----------
+  const VS = `attribute vec2 p; varying vec2 v; void main(){ v=p*.5+.5; gl_Position=vec4(p,0.,1.); }`;
+  const FS = `
+  precision mediump float;
+  varying vec2 v;
+  uniform sampler2D tex;
+  uniform float t, amt, br, glitch, gy, flick, mirror, ready;
+  uniform vec2 res, sc, of;
+  float h(vec2 p){ return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453); }
+  float n1(float x){ float i=floor(x), f=fract(x); return mix(h(vec2(i,0.)),h(vec2(i+1.,0.)),f*f*(3.-2.*f)); }
+  vec3 samp(vec2 uv){
+    if(mirror>.5) uv.x = 1.-uv.x;
+    uv = uv*sc+of;
+    return texture2D(tex, clamp(uv,0.001,.999)).rgb;
+  }
+  vec3 smear(vec2 uv, float w){
+    vec3 c = samp(uv)*.34 + samp(uv-vec2(w,0.))*.26 + samp(uv-vec2(2.*w,0.))*.18 + samp(uv+vec2(w,0.))*.14 + samp(uv-vec2(3.*w,0.))*.08;
+    return c;
+  }
+  void main(){
+    vec2 uv = v;
+    float y = 1.-uv.y;
+    float ln = floor(y*240.);
+    float tf = floor(t*30.);
+    float wob = (n1(ln*.35+t*6.)-.5)*.006*amt;
+    wob += (h(vec2(ln,tf))-.5)*.0025*amt;
+    float band = fract(t*.045);
+    float bandAmt = smoothstep(.07,0.,abs(y-band))*amt;
+    wob += bandAmt*.035*(n1(y*90.+t*25.)-.5);
+    float hs = smoothstep(.935,1.,y);
+    wob += hs*(.035+.03*sin(y*220.+t*40.))*amt;
+    float gt = step(abs(y-gy), .02+.05*glitch)*glitch;
+    wob += gt*.09*(h(vec2(ln,tf))-.35);
+    uv.x += wob;
+    float px = 1./res.x;
+    float ca = (1.2+2.8*amt)*px;
+    vec3 c;
+    c.r = smear(uv+vec2(ca,0.), px).r;
+    c.g = smear(uv, px).g;
+    c.b = smear(uv-vec2(ca*1.4,0.), px).b;
+    float l = dot(c, vec3(.299,.587,.114));
+    c = mix(vec3(l), c, 1.-.3*amt);
+    c = c*.88 + .06;
+    // backrooms: sickly mono-yellow, blown fluorescent highlights
+    vec3 yel = vec3(1.12,.95,.45);
+    vec3 bc = pow(vec3(l), vec3(.8))*yel*1.18 + vec3(.07,.055,.0);
+    bc = mix(bc, c*yel*1.1, .3);
+    c = mix(c, bc, br);
+    c *= 1.-flick*br;
+    c += bandAmt*.09;
+    float g = h(v*res + fract(t*7.13)*91.);
+    c += (g-.5)*(.05+.13*amt);
+    float sp = step(.9975-.002*amt, h(vec2(ln*1.7, tf))) * step(.55, h(vec2(floor(uv.x*30.), ln+tf)));
+    c = mix(c, vec3(1.), sp*.75*amt);
+    c = mix(c, vec3(g*.9), hs*.55*amt);
+    c = mix(c, vec3(g*.85), gt*.25);
+    c *= .9 + .1*sin(y*res.y*3.14159);
+    vec2 q = v-.5;
+    c *= 1.-dot(q,q)*(.8+.7*br);
+    c = mix(vec3(g*.35+.08,.09,.12), c, ready); // blue-ish static before camera is live
+    gl_FragColor = vec4(clamp(c,0.,1.),1.);
+  }`;
+  let prog, U = {}, texture;
+  function initGL(){
+    if (!gl) return false;
+    const sh = (type, src) => { const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
+      if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
+    prog = gl.createProgram();
+    gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS));
+    gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+    gl.linkProgram(prog); gl.useProgram(prog);
+    const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(prog,'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+    ['tex','t','amt','br','glitch','gy','flick','mirror','ready','res','sc','of'].forEach(n => U[n]=gl.getUniformLocation(prog,n));
+    texture = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([0,0,0,255]));
+    return true;
+  }
+
+  // ---------- overlay text ----------
+  function fmtClock(d){ let h=d.getHours(); const ap=h>=12?'PM':'AM'; h=h%12||12; return `${ap} ${h}:${String(d.getMinutes()).padStart(2,'0')}`; }
+  function fmtCounter(ms){ const s=Math.floor(ms/1000); return `${Math.floor(s/3600)}:${String(Math.floor(s/60)%60).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`; }
+  function vText(txt, x, y, align='left', color='#fff'){
+    octx.textAlign = align;
+    octx.fillStyle='rgba(0,0,0,.55)'; octx.fillText(txt, x+3, y+3);
+    octx.fillStyle='rgba(255,40,40,.55)'; octx.fillText(txt, x-2, y);
+    octx.fillStyle='rgba(40,140,255,.55)'; octx.fillText(txt, x+2, y);
+    octx.fillStyle=color; octx.fillText(txt, x, y);
+  }
+  function drawOSD(t){
+    const fs = Math.round(Math.min(W,H)*0.085);
+    octx.font = `${fs}px VT323, ui-monospace, monospace`;
+    octx.textBaseline = 'top';
+    const m = Math.round(fs*0.7), topM = m + (H>W ? fs*0.6 : 0), botM = H>W ? fs*3.6 : fs*1.4;
+    const jitter = (Math.random()<0.08*S.amt) ? (Math.random()-.5)*6 : 0;
+    if (recording) {
+      if (Math.floor(t*1.6)%2===0) vText('● REC', m+jitter, topM, 'left', '#ff3030');
+      vText(fmtCounter(performance.now()-recStart), W-m+jitter, topM, 'right');
+    } else {
+      vText('PLAY ▶', m+jitter, topM, 'left');
+      vText('SP', W-m+jitter, topM, 'right');
+    }
+    const d = new Date();
+    vText(fmtClock(d), m+jitter, H-botM-fs*1.05, 'left');
+    vText(($('date').value||'').toUpperCase(), m+jitter, H-botM, 'left');
+  }
+
+  // ---------- render loop ----------
+  const t0 = performance.now();
+  function frame(){
+    const t = (performance.now()-t0)/1000;
+    const live = cam.readyState >= 2 && cam.videoWidth > 0;
+    // random tape events
+    if (Math.random() < 0.006 + 0.012*S.amt) { glitch = 0.6+Math.random()*0.4; glitchY = Math.random(); }
+    glitch *= 0.86; if (glitch < 0.02) glitch = 0;
+    const brT = S.mode==='backrooms' ? 1 : 0; brMix += (brT-brMix)*0.15;
+    if (Math.random() < 0.025) flick = 0.12 + Math.random()*0.25; else flick *= 0.75;
+    const fl = flick + 0.015*Math.sin(t*120.0*Math.PI);
+
+    if (gl && prog) {
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      if (live) { try { gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,cam); } catch(e){} }
+      const va = live ? cam.videoWidth/cam.videoHeight : W/H, caR = W/H;
+      let sc=[1,1], of=[0,0];
+      if (va > caR) { sc=[caR/va,1]; of=[(1-sc[0])/2,0]; } else { sc=[1,va/caR]; of=[0,(1-sc[1])/2]; }
+      gl.uniform1i(U.tex,0); gl.uniform1f(U.t,t); gl.uniform1f(U.amt,S.amt); gl.uniform1f(U.br,brMix);
+      gl.uniform1f(U.glitch,glitch); gl.uniform1f(U.gy,glitchY); gl.uniform1f(U.flick,fl);
+      gl.uniform1f(U.mirror, S.facing==='user'?1:0); gl.uniform1f(U.ready, live?1:0);
+      gl.uniform2f(U.res,glc.width,glc.height); gl.uniform2f(U.sc,sc[0],sc[1]); gl.uniform2f(U.of,of[0],of[1]);
+      gl.drawArrays(gl.TRIANGLES,0,6);
+      octx.imageSmoothingEnabled = true;
+      octx.drawImage(glc,0,0,W,H);
+    } else if (live) {
+      octx.filter = 'sepia(.6) saturate(1.4) contrast(1.1) blur(1px)';
+      octx.drawImage(cam,0,0,W,H); octx.filter='none';
+    }
+    if (S.osd) drawOSD(t);
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- camera ----------
+  async function startCamera(){
+    if (videoStream) videoStream.getTracks().forEach(tr=>tr.stop());
+    videoStream = await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode:{ ideal:S.facing }, width:{ ideal:1280 }, height:{ ideal:720 }, frameRate:{ ideal:30 } }, audio:false });
+    cam.srcObject = videoStream;
+    await cam.play().catch(()=>{});
+  }
+
+  // ---------- tape audio ----------
+  function makeAudio(){
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC || !audioStream) return null;
+    const ctx = new AC();
+    const src = ctx.createMediaStreamSource(audioStream);
+    const dest = ctx.createMediaStreamDestination();
+    // processed path
+    const hp = ctx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=140;
+    const lp = ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=3800;
+    const shaper = ctx.createWaveShaper(); const curve=new Float32Array(1024);
+    for(let i=0;i<1024;i++){ const x=i/512-1; curve[i]=Math.tanh(x*2.2)/Math.tanh(2.2); } shaper.curve=curve;
+    const wow = ctx.createDelay(0.05); wow.delayTime.value=0.012;
+    const lfo = ctx.createOscillator(); lfo.frequency.value=0.55; const lfoG=ctx.createGain(); lfoG.gain.value=0.0018;
+    lfo.connect(lfoG).connect(wow.delayTime); lfo.start();
+    const fx = ctx.createGain(); fx.gain.value = 1.1;
+    src.connect(hp).connect(lp).connect(shaper).connect(wow).connect(fx);
+    const dry = ctx.createGain(); src.connect(dry);
+    // hiss
+    const nb = ctx.createBuffer(1, ctx.sampleRate*2, ctx.sampleRate); const d=nb.getChannelData(0);
+    for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
+    const noise = ctx.createBufferSource(); noise.buffer=nb; noise.loop=true;
+    const nhp = ctx.createBiquadFilter(); nhp.type='highpass'; nhp.frequency.value=1800;
+    const hiss = ctx.createGain(); noise.connect(nhp).connect(hiss); noise.start();
+    // fluorescent buzz
+    const osc = ctx.createOscillator(); osc.type='sawtooth'; osc.frequency.value=120;
+    const osc2 = ctx.createOscillator(); osc2.type='square'; osc2.frequency.value=240;
+    const blp = ctx.createBiquadFilter(); blp.type='lowpass'; blp.frequency.value=900;
+    const buzz = ctx.createGain(); osc.connect(blp); osc2.connect(blp); blp.connect(buzz); osc.start(); osc2.start();
+    [fx,dry,hiss,buzz].forEach(n=>n.connect(dest));
+    const a = { ctx, dest, fx, dry, hiss, buzz };
+    a.update = () => {
+      fx.gain.value = S.afx ? 1.1 : 0; dry.gain.value = S.afx ? 0 : 1;
+      hiss.gain.value = S.afx ? 0.012 + 0.03*S.amt : 0;
+      buzz.gain.value = (S.hum && S.mode==='backrooms') ? 0.018 : 0;
+    };
+    a.update();
+    return a;
+  }
+
+  // ---------- recording ----------
+  function pickMime(){
+    if (!window.MediaRecorder) return null;
+    const c = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
+    return c.find(m => { try { return MediaRecorder.isTypeSupported(m); } catch(e){ return false; } }) || '';
+  }
+  function startRec(){
+    const mime = pickMime();
+    if (mime === null || !out.captureStream) { toast('Recording not supported in this browser', 3000); return; }
+    const vs = out.captureStream(30);
+    const tracks = [...vs.getVideoTracks()];
+    if (audio) { if (audio.ctx.state==='suspended') audio.ctx.resume(); tracks.push(...audio.dest.stream.getAudioTracks()); }
+    const ms = new MediaStream(tracks);
+    chunks = [];
+    try { recorder = new MediaRecorder(ms, mime ? { mimeType:mime, videoBitsPerSecond:4_000_000 } : undefined); }
+    catch(e){ recorder = new MediaRecorder(ms); }
+    recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    recorder.onstop = () => {
+      vs.getTracks().forEach(tr=>tr.stop());
+      const type = (recorder.mimeType || mime || 'video/webm');
+      lastBlob = new Blob(chunks, { type });
+      showReview();
+    };
+    recorder.start(1000);
+    recording = true; recStart = performance.now();
+    $('rec').classList.add('on');
+  }
+  function stopRec(){
+    if (recorder && recorder.state !== 'inactive') recorder.stop();
+    recording = false; $('rec').classList.remove('on');
+  }
+
+  function fileForBlob(){
+    const base = lastBlob.type.split(';')[0] || 'video/webm';
+    const ext = base.includes('mp4') ? 'mp4' : (base.includes('quicktime') ? 'mov' : 'webm');
+    const d = new Date(), p = n=>String(n).padStart(2,'0');
+    const name = `LEVEL0_${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.${ext}`;
+    return new File([lastBlob], name, { type: base });
+  }
+  function showReview(){
+    if (lastUrl) URL.revokeObjectURL(lastUrl);
+    lastUrl = URL.createObjectURL(lastBlob);
+    $('playback').src = lastUrl;
+    const f = fileForBlob();
+    const canShare = navigator.canShare && navigator.canShare({ files:[f] });
+    $('save').style.display = canShare ? '' : 'none';
+    $('msg').textContent = canShare
+      ? 'Tap SAVE, then pick “Save Video” (iPhone) or Photos / Gallery (Android).'
+      : (f.name.endsWith('webm') ? 'Your browser recorded WEBM. Download it, then open it from your files.' : 'Download it, then move it to your gallery.');
+    $('review').classList.add('show');
+    $('playback').play().catch(()=>{});
+  }
+  function download(){
+    const f = fileForBlob(); const a = document.createElement('a');
+    a.href = lastUrl; a.download = f.name; document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  // ---------- UI wiring ----------
+  $('rec').onclick = () => { recording ? stopRec() : startRec(); };
+  $('flip').onclick = async () => {
+    S.facing = S.facing==='environment' ? 'user' : 'environment';
+    try { await startCamera(); } catch(e){ toast('Could not switch camera'); }
+  };
+  $('gear').onclick = () => $('sheet').classList.add('open');
+  $('closeSheet').onclick = () => $('sheet').classList.remove('open');
+  $('out').onclick = () => $('sheet').classList.remove('open');
+  document.querySelectorAll('#mode button').forEach(b => b.onclick = () => {
+    document.querySelectorAll('#mode button').forEach(x=>x.classList.toggle('sel', x===b));
+    S.mode = b.dataset.v; audio && audio.update();
+  });
+  $('amt').oninput = e => { S.amt = +e.target.value; audio && audio.update(); };
+  $('osd').onchange = e => S.osd = e.target.checked;
+  $('afx').onchange = e => { S.afx = e.target.checked; audio && audio.update(); };
+  $('hum').onchange = e => { S.hum = e.target.checked; audio && audio.update(); };
+  $('save').onclick = async () => {
+    try { await navigator.share({ files:[fileForBlob()], title:'LEVEL 0 CAM' }); }
+    catch(e){ if (e && e.name !== 'AbortError') { $('msg').textContent = 'Share failed — use DOWNLOAD FILE instead.'; } }
+  };
+  $('dl').onclick = download;
+  $('discard').onclick = () => { $('review').classList.remove('show'); $('playback').pause(); };
+
+  // ---------- boot ----------
+  let booted = false;
+  $('start').onclick = async () => {
+    if (booted) return;
+    const err = $('err');
+    if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      err.style.display='block';
+      err.textContent = 'Camera needs a secure (https://) page. Host this file on Netlify Drop or GitHub Pages and open that link on your phone.';
+      return;
+    }
+    booted = true;
+    try { await startCamera(); }
+    catch(e){ booted=false; err.style.display='block'; err.textContent='Camera blocked: '+(e.message||e.name)+'. Allow camera access and tap again.'; return; }
+    try { audioStream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:true }, video:false }); }
+    catch(e){ toast('No mic — recording silent', 2500); }
+    audio = makeAudio();
+    if (audio && audio.ctx.state==='suspended') audio.ctx.resume();
+    $('start').style.display='none';
+  };
+
+  sizeCanvas();
+  try { initGL(); } catch(e){ console.error(e); prog=null; }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
